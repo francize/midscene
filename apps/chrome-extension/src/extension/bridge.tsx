@@ -6,24 +6,46 @@ import { useEffect, useRef, useState } from 'react';
 import './bridge.less';
 import { iconForStatus } from './misc';
 
+/**
+ * Bridge 日志项接口
+ * 记录 Bridge 模式下的日志信息，包含时间戳和日志内容
+ */
 interface BridgeLogItem {
   time: string;
   content: string;
 }
 
+// 连接重试间隔（毫秒）
 const connectRetryInterval = 300;
 
+/**
+ * Bridge 状态类型
+ * - listening: 正在监听连接
+ * - connected: 已连接
+ * - disconnected: 意外断开
+ * - closed: 已关闭
+ */
 type BridgeStatus =
   | 'listening'
   | 'connected'
   | 'disconnected' /* disconnected unintentionally */
   | 'closed';
 
+/**
+ * Bridge 连接器类
+ * 负责管理与本地终端的 Bridge 连接，处理状态变化和消息传递
+ */
 class BridgeConnector {
   status: BridgeStatus = 'closed';
 
+  // 活动的 Bridge 页面实例
   activeBridgePage: ExtensionBridgePageBrowserSide | null = null;
 
+  /**
+   * 构造函数
+   * @param onMessage 消息处理回调，接收消息内容和类型
+   * @param onBridgeStatusChange 状态变化回调，接收新的状态
+   */
   constructor(
     private onMessage: (message: string, type: 'log' | 'status') => void,
     private onBridgeStatusChange: (status: BridgeStatus) => void,
@@ -31,11 +53,19 @@ class BridgeConnector {
     this.status = 'closed';
   }
 
+  /**
+   * 设置 Bridge 连接状态并触发回调
+   * @param status 新的状态
+   */
   setStatus(status: BridgeStatus) {
     this.status = status;
     this.onBridgeStatusChange(status);
   }
 
+  /**
+   * 保持监听连接
+   * 启动连接监听循环，尝试建立与本地终端的连接
+   */
   keepListening() {
     if (this.status === 'listening' || this.status === 'connected') {
       return;
@@ -60,6 +90,7 @@ class BridgeConnector {
 
         let activeBridgePage: ExtensionBridgePageBrowserSide | null = null;
         try {
+          // 创建新的 Bridge 页面实例
           activeBridgePage = new ExtensionBridgePageBrowserSide(() => {
             if (this.status !== 'closed') {
               this.setStatus('disconnected');
@@ -71,6 +102,7 @@ class BridgeConnector {
 
           this.setStatus('connected');
         } catch (e) {
+          // 连接失败，清理并重试
           this.activeBridgePage?.destroy();
           this.activeBridgePage = null;
           console.warn('failed to setup connection', e);
@@ -82,6 +114,10 @@ class BridgeConnector {
     })();
   }
 
+  /**
+   * 停止 Bridge 连接
+   * 销毁活动的 Bridge 页面并将状态设为关闭
+   */
   async stopConnection() {
     if (this.status === 'closed') {
       console.warn('Cannot stop connection if not connected');
@@ -97,12 +133,23 @@ class BridgeConnector {
   }
 }
 
+/**
+ * Bridge 组件
+ * 展示 Bridge 模式界面，允许用户启动或停止与本地终端的连接
+ * 显示连接状态和日志信息
+ */
 export default function Bridge() {
+  // Bridge 状态和任务状态
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>('closed');
   const [taskStatus, setTaskStatus] = useState<string>('');
 
+  // Bridge 日志
   const [bridgeLog, setBridgeLog] = useState<BridgeLogItem[]>([]);
 
+  /**
+   * 添加日志条目
+   * @param content 日志内容
+   */
   const appendBridgeLog = (content: string) => {
     setBridgeLog((prev) => [
       ...prev,
@@ -113,6 +160,7 @@ export default function Bridge() {
     ]);
   };
 
+  // Bridge 连接器引用
   const activeBridgeConnectorRef = useRef<BridgeConnector | null>(
     new BridgeConnector(
       (message, type) => {
@@ -133,20 +181,28 @@ export default function Bridge() {
     ),
   );
 
+  // 组件卸载时停止连接
   useEffect(() => {
     return () => {
       activeBridgeConnectorRef.current?.stopConnection();
     };
   }, []);
 
+  /**
+   * 停止 Bridge 连接
+   */
   const stopConnection = () => {
     activeBridgeConnectorRef.current?.stopConnection();
   };
 
+  /**
+   * 启动 Bridge 连接监听
+   */
   const startConnection = async () => {
     activeBridgeConnectorRef.current?.keepListening();
   };
 
+  // 根据当前状态确定显示的图标、提示和按钮
   let statusIcon: any;
   let statusTip: string;
   let statusBtn: any;
@@ -195,6 +251,7 @@ export default function Bridge() {
     statusBtn = null;
   }
 
+  // 准备日志条目，新的日志显示在顶部
   const logs = [...bridgeLog].reverse().map((log, index) => {
     return (
       <div className="bridge-log-item" key={index}>
@@ -213,6 +270,7 @@ export default function Bridge() {
 
   return (
     <div>
+      {/* Bridge 模式说明 */}
       <p>
         In Bridge Mode, you can control this browser by the Midscene SDK running
         in the local terminal. This is useful for interacting both through
@@ -227,6 +285,7 @@ export default function Bridge() {
       </p>
 
       <div className="playground-form-container">
+        {/* Bridge 状态显示区域 */}
         <div className="form-part">
           <h3>Bridge Status</h3>
           <div className="bridge-status-bar">
@@ -237,6 +296,7 @@ export default function Bridge() {
             <div className="bridge-status-btn">{statusBtn}</div>
           </div>
         </div>
+        {/* Bridge 日志显示区域 */}
         <div className="form-part">
           <h3>
             Bridge Log{' '}
