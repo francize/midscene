@@ -1,0 +1,50 @@
+{
+    "tools": [
+        {
+            "name": "connect_new_tab_with_url",
+            "description": "Connects to a new browser tab and navigates to the specified URL.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to navigate to in the new tab."
+                    },
+                    "timeout": {
+                        "type": "number",
+                        "description": "Timeout in seconds to wait for the connection.",
+                        "default": 30
+                    }
+                },
+                "required": ["url"]
+            }
+        },
+        {
+            "name": "version",
+            "description": "Gets the version of the connected MidScene Chrome Extension.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        },
+        {
+            "name": "close_tab",
+            "description": "Closes the currently active tab.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        },
+        {
+            "name": "get_tab_content",
+            "description": "Gets the content (title, URL, focused element) of the current tab.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    ]
+} 

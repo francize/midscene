@@ -115,3 +115,10 @@ extension_output
 .cursor
 android-playground/static/
 .cursor
+__pycache__/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/*.pyw
+**/*.pyz

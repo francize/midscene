@@ -1,0 +1,4 @@
+name: midscene-browser-mcp-service
+version: 0.1.0
+description: MCP service to interact with a browser via MidScene Chrome Extension.
+mcp_version: ^1.0 
