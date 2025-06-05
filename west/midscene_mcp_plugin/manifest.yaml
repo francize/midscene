@@ -1,0 +1,6 @@
+author: "nashe"
+name: "west-mcp-browser-automation"
+description: "west 浏览器自动化插件，支持远程控制浏览器导航、内容获取和元素交互"
+resource:
+  memory: 2097152
+version: 0.0.1 

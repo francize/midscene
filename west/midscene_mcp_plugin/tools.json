@@ -1,0 +1,58 @@
+{
+    "tools": [
+        {
+            "name": "navigate",
+            "description": "导航到指定的URL地址",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "description": "用户名，用于识别目标浏览器"
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "要导航到的URL地址"
+                    }
+                },
+                "required": ["username", "url"]
+            }
+        },
+        {
+            "name": "getPageContent", 
+            "description": "获取当前标签页的页面内容和截图",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "description": "用户名，用于识别目标浏览器"
+                    },
+                    "includeScreenshot": {
+                        "type": "boolean",
+                        "description": "是否包含页面截图"
+                    }
+                },
+                "required": ["username"]
+            }
+        },
+        {
+            "name": "clickElement",
+            "description": "点击页面上的指定元素",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "description": "用户名，用于识别目标浏览器"
+                    },
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS选择器或元素描述"
+                    }
+                },
+                "required": ["username", "selector"]
+            }
+        }
+    ]
+} 

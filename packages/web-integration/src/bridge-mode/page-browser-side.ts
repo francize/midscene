@@ -13,6 +13,7 @@ import {
   MouseEvent,
 } from './common';
 import { BridgeClient } from './io-client';
+import { PageAgent } from '../common/agent';
 
 declare const __VERSION__: string;
 
@@ -23,6 +24,8 @@ export class ExtensionBridgePageBrowserSide extends ChromeExtensionProxyPage {
 
   private newlyCreatedTabIds: number[] = [];
 
+  private agent: PageAgent<this>;
+
   constructor(
     public onDisconnect: () => void = () => {},
     public onLogMessage: (
@@ -32,6 +35,10 @@ export class ExtensionBridgePageBrowserSide extends ChromeExtensionProxyPage {
     forceSameTabNavigation = true,
   ) {
     super(forceSameTabNavigation);
+    this.agent = new PageAgent<this>(this, {
+      generateReport: false,
+      autoPrintReportMsg: false,
+    });
   }
 
   private async setupBridgeClient() {
@@ -62,35 +69,45 @@ export class ExtensionBridgePageBrowserSide extends ChromeExtensionProxyPage {
           return this.onLogMessage(args[0] as string, 'status');
         }
 
+        if (method === BridgeEvent.AiTap) {
+          const [naturalLanguagePrompt] = args as [string];
+          this.onLogMessage(`AI Tap received for: "${naturalLanguagePrompt}"`, 'log');
+          try {
+            const result = await this.agent.aiTap(naturalLanguagePrompt);
+            this.onLogMessage(`AI Tap successful for: "${naturalLanguagePrompt}"`, 'log');
+            return result;
+          } catch (error: any) {
+            this.onLogMessage(`AI Tap failed for "${naturalLanguagePrompt}": ${error.message}`, 'log');
+            throw error;
+          }
+        }
+
         const tabId = await this.getActiveTabId();
         if (!tabId || tabId === 0) {
           throw new Error('no tab is connected');
         }
 
-        // this.onLogMessage(`calling method: ${method}`);
-
         if (method.startsWith(MouseEvent.PREFIX)) {
           const actionName = method.split('.')[1] as keyof MouseAction;
-          if (actionName === 'drag') {
-            return this.mouse[actionName].apply(this.mouse, args as any);
+          if (typeof this.mouse[actionName] === 'function') {
+            return (this.mouse[actionName] as Function).apply(this.mouse, args as any);
           }
-          return this.mouse[actionName].apply(this.mouse, args as any);
+          throw new Error(`Unknown mouse action: ${actionName}`);
         }
 
         if (method.startsWith(KeyboardEvent.PREFIX)) {
           const actionName = method.split('.')[1] as keyof KeyboardAction;
-          if (actionName === 'press') {
-            return this.keyboard[actionName].apply(this.keyboard, args as any);
+          if (typeof this.keyboard[actionName] === 'function') {
+            return (this.keyboard[actionName] as Function).apply(this.keyboard, args as any);
           }
-          return this.keyboard[actionName].apply(this.keyboard, args as any);
+          throw new Error(`Unknown keyboard action: ${actionName}`);
         }
 
         try {
-          // @ts-expect-error
-          const result = await this[method as keyof ChromeExtensionProxyPage](
-            ...args,
-          );
-          return result;
+          if (typeof (this as any)[method] === 'function') {
+            return (this as any)[method](...args);
+          }
+          throw new Error(`Method ${method} not found on this page object.`);
         } catch (e) {
           const errorMessage = e instanceof Error ? e.message : 'Unknown error';
           console.error('error calling method', method, args, e);
@@ -101,7 +118,6 @@ export class ExtensionBridgePageBrowserSide extends ChromeExtensionProxyPage {
           throw new Error(errorMessage, { cause: e });
         }
       },
-      // on disconnect
       () => {
         return this.destroy();
       },
@@ -127,7 +143,6 @@ export class ExtensionBridgePageBrowserSide extends ChromeExtensionProxyPage {
     const tabId = tab.id;
     assert(tabId, 'failed to get tabId after creating a new tab');
 
-    // new tab
     this.onLogMessage(`Creating new tab: ${url}`, 'log');
     this.newlyCreatedTabIds.push(tabId);
 

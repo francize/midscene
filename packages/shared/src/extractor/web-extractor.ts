@@ -6,6 +6,7 @@ import {
 import type { WebElementInfo } from '../types';
 import type { Point } from '../types';
 import {
+  isAElement,
   isButtonElement,
   isContainerElement,
   isFormElement,
@@ -62,7 +63,6 @@ export function collectElementInfo(
   }
 
   if (
-    node !== currentDocument.body &&
     visibleOnly &&
     (rect.width < CONTAINER_MINI_WIDTH || rect.height < CONTAINER_MINI_HEIGHT)
   ) {
@@ -74,12 +74,8 @@ export function collectElementInfo(
     rect.top += basePoint.top;
   }
   // Skip elements that cover the entire viewport, as they are likely background containers
-  // rather than meaningful interactive elements. This check should not apply to document.body itself.
-  if (
-    node !== currentDocument.body &&
-    rect.height >= currentWindow.innerHeight &&
-    rect.width >= currentWindow.innerWidth
-  ) {
+  // rather than meaningful interactive elements
+  if (rect.height >= window.innerHeight && rect.width >= window.innerWidth) {
     return null;
   }
 
@@ -131,6 +127,16 @@ export function collectElementInfo(
   }
 
   if (isButtonElement(node)) {
+    const rect = mergeElementAndChildrenRects(
+      node,
+      currentWindow,
+      currentDocument,
+      baseZoom,
+      visibleOnly,
+    );
+    if (!rect) {
+      return null;
+    }
     const attributes = getNodeAttributes(node, currentWindow);
     const pseudo = getPseudoElementContent(node, currentWindow);
     const content = node.innerText || pseudo.before || pseudo.after || '';
@@ -223,6 +229,34 @@ export function collectElementInfo(
     return elementInfo;
   }
 
+  if (isAElement(node)) {
+    const attributes = getNodeAttributes(node, currentWindow);
+    const pseudo = getPseudoElementContent(node, currentWindow);
+    const content = node.innerText || pseudo.before || pseudo.after || '';
+    const nodeHashId = midsceneGenerateHash(node, content, rect);
+    const selector = setDataForNode(node, nodeHashId, false, currentWindow);
+    const elementInfo: WebElementInfo = {
+      id: nodeHashId,
+      indexId: indexId++,
+      nodeHashId,
+      nodeType: NodeType.A,
+      locator: selector,
+      attributes: {
+        ...attributes,
+        htmlTagName: tagNameOfNode(node),
+        nodeType: NodeType.A,
+      },
+      content,
+      rect,
+      center: [
+        Math.round(rect.left + rect.width / 2),
+        Math.round(rect.top + rect.height / 2),
+      ],
+      zoom: rect.zoom,
+    };
+    return elementInfo;
+  }
+
   // else, consider as a container
   if (isContainerElement(node)) {
     const attributes = getNodeAttributes(node, currentWindow);
@@ -263,145 +297,196 @@ export function extractTextWithPosition(
   debugMode = false,
 ): WebElementInfo[] {
   const elementNode = extractTreeNode(initNode, debugMode);
+
+  // dfs topChildren
   const elementInfoArray: WebElementInfo[] = [];
-
-  // Guard against elementNode being null
-  if (!elementNode) {
-    return elementInfoArray; // Return empty array if no tree
-  }
-
-  function dfsRecursive(node: WebElementNode) {
+  function dfsTopChildren(node: WebElementNode) {
     if (node.node) {
       elementInfoArray.push(node.node);
     }
     for (let i = 0; i < node.children.length; i++) {
-      dfsRecursive(node.children[i]);
+      dfsTopChildren(node.children[i]);
     }
   }
-  dfsRecursive(elementNode); // Start DFS from the root of the extracted tree
+  dfsTopChildren({ children: elementNode.children, node: elementNode.node });
   return elementInfoArray;
 }
 
 export function extractTreeNodeAsString(
   initNode: globalThis.Node,
-  debugMode = true,
+  debugMode = false,
 ): string {
   const elementNode = extractTreeNode(initNode, debugMode);
-  return elementNode ? descriptionOfTree(elementNode) : '';
-}
-
-function dfs(
-  node: globalThis.Node,
-  currentWindow: typeof globalThis.window,
-  currentDocument: typeof globalThis.document,
-  baseZoom = 1,
-  basePoint: Point = { left: 0, top: 0 },
-): WebElementNode | null {
-  if (!node) {
-    return null;
-  }
-
-  if (node.nodeType && node.nodeType === 10) {
-    // Doctype node
-    return null;
-  }
-
-  const elementInfo = collectElementInfo(
-    node,
-    currentWindow,
-    currentDocument,
-    baseZoom,
-    basePoint,
-  );
-
-  // Special handling for IFRAME content
-  if (node instanceof currentWindow.HTMLIFrameElement && elementInfo) {
-    const iframeNode = node as HTMLIFrameElement;
-    const childrenOfIframe: WebElementNode[] = [];
-    if (iframeNode.contentDocument && iframeNode.contentWindow) {
-      const iframeContentRoot = dfs(
-        iframeNode.contentDocument.body,
-        iframeNode.contentWindow as any,
-        iframeNode.contentDocument,
-        elementInfo.zoom, // Use the zoom calculated for the iframe element itself
-        // Pass the iframe's own absolute coordinates as the base for its content
-        { left: elementInfo.rect.left, top: elementInfo.rect.top },
-      );
-      if (iframeContentRoot) {
-        // The content of the iframe is represented by iframeContentRoot.
-        // If iframeContentRoot.node is null (e.g. iframe body was skipped but had children),
-        // add its children directly. Otherwise, add the whole iframeContentRoot (body node + its children).
-        if (iframeContentRoot.node === null && iframeContentRoot.children.length > 0) {
-          childrenOfIframe.push(...iframeContentRoot.children);
-        } else {
-          childrenOfIframe.push(iframeContentRoot); // This will be {node: iframeBodyInfo, children: iframeBodyChildren}
-        }
-      }
-    }
-    return { node: elementInfo, children: childrenOfIframe };
-  }
-
-  // If it's a leaf-like node, return early (no children processing needed)
-  if (
-    elementInfo &&
-    (elementInfo.nodeType === NodeType.BUTTON ||
-      elementInfo.nodeType === NodeType.IMG ||
-      elementInfo.nodeType === NodeType.TEXT ||
-      elementInfo.nodeType === NodeType.FORM_ITEM)
-  ) {
-    return { node: elementInfo, children: [] };
-  }
-
-  const children: WebElementNode[] = [];
-  // For other elements (including containers that are not iframes)
-  // or for nodes that didn't get elementInfo (like plain text nodes, comments)
-  // iterate over childNodes of the DOM node.
-  for (let i = 0; i < node.childNodes.length; i++) {
-    logger('will dfs', node.childNodes[i]);
-    const childNodeInfo = dfs(
-      node.childNodes[i],
-      currentWindow,
-      currentDocument,
-      elementInfo ? elementInfo.zoom : baseZoom, // Pass down calculated zoom of current node or parent's zoom
-      basePoint, // basePoint is for the coordinate system of the current node's parent
-    );
-    if (childNodeInfo) {
-      children.push(childNodeInfo);
-    }
-  }
-
-  // If the current node itself had no collectible info, but it has processable children,
-  // return a structure with node: null and those children.
-  // Otherwise, if elementInfo is present, return it with its processed children.
-  if (elementInfo || children.length > 0) {
-    return { node: elementInfo, children };
-  }
-
-  return null; // Node is not visible, too small, or has no info and no processable children.
+  return descriptionOfTree(elementNode);
 }
 
 export function extractTreeNode(
   initNode: globalThis.Node,
-  debugMode = true,
-): WebElementNode | null { // Return type can be null if the root itself isn't processable
+  debugMode = false,
+): WebElementNode {
   setDebugMode(debugMode);
-  console.log('[extractTreeNode] function called. debugMode:', debugMode, 'initNode:', initNode);
   indexId = 0;
 
-  const topDoc = getTopDocument();
-  const effectiveRootNode = initNode || (topDoc as unknown as Document).body; // Default to document.body with type assertion
+  const topDocument = getTopDocument();
+  const startNode = initNode || topDocument;
+  const topChildren: WebElementNode[] = [];
 
-  const tree = dfs(effectiveRootNode, window, document, 1, { left: 0, top: 0 });
+  function dfs(
+    node: globalThis.Node,
+    currentWindow: typeof globalThis.window,
+    currentDocument: typeof globalThis.document,
+    baseZoom = 1,
+    basePoint: Point = { left: 0, top: 0 },
+  ): WebElementNode | null {
+    if (!node) {
+      return null;
+    }
 
-  if (tree === null) {
-    // This means dfs couldn't process effectiveRootNode (e.g. it was hidden/empty with no processable children)
-    // To be consistent and not make Python receive a raw `null` which it logs as "no data",
-    // let's return an empty tree structure. The AI should ideally see this as "empty page"
-    // rather than "extraction failed".
-    const emptyTree = { node: null, children: [] };
-    if(debugMode) console.log('[extractTreeNode] Returning empty tree:', JSON.stringify(emptyTree));
-    return emptyTree;
+    if (node.nodeType && node.nodeType === 10) {
+      // Doctype node
+      return null;
+    }
+
+    const elementInfo = collectElementInfo(
+      node,
+      currentWindow,
+      currentDocument,
+      baseZoom,
+      basePoint,
+    );
+
+    if (node instanceof currentWindow.HTMLIFrameElement) {
+      if (
+        (node as HTMLIFrameElement).contentWindow &&
+        (node as HTMLIFrameElement).contentWindow
+      ) {
+        return null;
+      }
+    }
+
+    const nodeInfo: WebElementNode = {
+      node: elementInfo,
+      children: [],
+    };
+    // stop collecting if the node is a Button/Image/Text/A/FormItem/Container
+    if (
+      elementInfo?.nodeType === NodeType.BUTTON ||
+      elementInfo?.nodeType === NodeType.IMG ||
+      elementInfo?.nodeType === NodeType.TEXT ||
+      elementInfo?.nodeType === NodeType.A ||
+      elementInfo?.nodeType === NodeType.FORM_ITEM ||
+      elementInfo?.nodeType === NodeType.CONTAINER
+    ) {
+      return nodeInfo;
+    }
+
+    const rect = getRect(node, baseZoom, currentWindow);
+    for (let i = 0; i < node.childNodes.length; i++) {
+      logger('will dfs', node.childNodes[i]);
+      const childNodeInfo = dfs(
+        node.childNodes[i],
+        currentWindow,
+        currentDocument,
+        rect.zoom,
+        basePoint,
+      );
+      if (childNodeInfo) {
+        nodeInfo.children.push(childNodeInfo);
+      }
+    }
+
+    return nodeInfo;
   }
-  if(debugMode) console.log('[extractTreeNode] Returning tree:', descriptionOfTree(tree)); // Using descriptionOfTree for potentially large trees
-  return tree;
+
+  const rootNodeInfo = dfs(startNode, window, document, 1, {
+    left: 0,
+    top: 0,
+  });
+  if (rootNodeInfo) {
+    topChildren.push(rootNodeInfo);
+  }
+  if (startNode === topDocument) {
+    // find all the same-origin iframes
+    const iframes = document.querySelectorAll('iframe');
+    for (let i = 0; i < iframes.length; i++) {
+      const iframe = iframes[i];
+      if (iframe.contentDocument && iframe.contentWindow) {
+        const iframeInfo = collectElementInfo(iframe, window, document, 1);
+        // when the iframe is in the viewport, we need to collect its children
+        if (iframeInfo) {
+          const iframeChildren = dfs(
+            iframe.contentDocument.body,
+            iframe.contentWindow as any,
+            iframe.contentDocument,
+            1,
+            {
+              left: iframeInfo.rect.left,
+              top: iframeInfo.rect.top,
+            },
+          );
+          if (iframeChildren) {
+            topChildren.push(iframeChildren);
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    node: null,
+    children: topChildren,
+  };
+}
+
+export function mergeElementAndChildrenRects(
+  node: Node,
+  currentWindow: typeof window,
+  currentDocument: typeof document,
+  baseZoom = 1,
+  visibleOnly = true,
+) {
+  const selfRect = elementRect(
+    node,
+    currentWindow,
+    currentDocument,
+    baseZoom,
+    visibleOnly,
+  );
+  if (!selfRect) return null;
+
+  let minLeft = selfRect.left;
+  let minTop = selfRect.top;
+  let maxRight = selfRect.left + selfRect.width;
+  let maxBottom = selfRect.top + selfRect.height;
+
+  function traverse(child: Node) {
+    for (let i = 0; i < child.childNodes.length; i++) {
+      const sub = child.childNodes[i];
+      if (sub.nodeType === 1) {
+        const rect = elementRect(
+          sub,
+          currentWindow,
+          currentDocument,
+          baseZoom,
+          visibleOnly,
+        );
+        if (rect) {
+          minLeft = Math.min(minLeft, rect.left);
+          minTop = Math.min(minTop, rect.top);
+          maxRight = Math.max(maxRight, rect.left + rect.width);
+          maxBottom = Math.max(maxBottom, rect.top + rect.height);
+        }
+        traverse(sub);
+      }
+    }
+  }
+  traverse(node);
+
+  return {
+    ...selfRect,
+    left: minLeft,
+    top: minTop,
+    width: maxRight - minLeft,
+    height: maxBottom - minTop,
+  };
 }

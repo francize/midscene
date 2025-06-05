@@ -14,6 +14,7 @@ import type { ExtensionBridgePageBrowserSide } from './page-browser-side';
 
 interface ChromeExtensionPageCliSide extends ExtensionBridgePageBrowserSide {
   showStatusMessage: (message: string) => Promise<void>;
+  aiTap: (locatePrompt: string, opt?: any) => Promise<any>;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -151,6 +152,14 @@ export class AgentOverChromeBridge extends PageAgent<ChromeExtensionPageCliSide>
     await this.page.connectCurrentTab(options);
     await sleep(500);
     await this.setDestroyOptionsAfterConnect();
+  }
+
+  // Override aiTap to send the command directly to the extension
+  async aiTap(locatePrompt: string, opt?: any) {
+    // The 'opt' parameter might need to be serialized or handled if it contains complex objects
+    // For now, assuming it's simple or not used for the bridge call.
+    // BridgeEvent.AiTap is the method name the extension side will listen for.
+    return this.page.aiTap(locatePrompt, opt); 
   }
 
   async aiAction(prompt: string, options?: any) {

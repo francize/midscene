@@ -96,4 +96,18 @@ export class BridgeClient {
     this.socket?.disconnect();
     this.socket = null;
   }
+
+  // Add a public method to emit events
+  public emit(event: string, ...args: any[]): void {
+    this.socket?.emit(event, ...args);
+  }
+
+  // Add a public method to register event handlers
+  public on(event: string, handler: (...args: any[]) => void): void {
+    this.socket?.on(event, handler);
+  }
+
+  public off(event: string, handler?: (...args: any[]) => void): void {
+    this.socket?.off(event, handler);
+  }
 }

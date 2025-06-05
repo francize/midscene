@@ -260,7 +260,7 @@ export default class ChromeExtensionProxyPage implements AbstractPage {
     )) as ResponseType;
   }
 
-  private async getPageContentByCDP() {
+  protected async getPageContentByCDP() {
     const script = await getHtmlElementScript();
 
     // check tab url
